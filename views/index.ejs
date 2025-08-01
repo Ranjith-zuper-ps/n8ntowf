@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Workflow Migration Form</title>
+    <!-- Tailwind CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+    <div class="bg-white shadow-xl rounded-xl p-8 w-full max-w-xl">
+        <h1 class="text-2xl font-bold mb-6 text-gray-800">Upload N8N Workflow</h1>
+        <form id="migrationForm" class="space-y-4">
+            <div>
+                <label class="block text-gray-700 font-medium">Workflow Name</label>
+                <input type="text" name="workflow_name"
+                    class="w-full mt-1 p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    required>
+            </div>
+
+            <div>
+                <label class="block text-gray-700 font-medium">Environment</label>
+                <select name="env"
+                    class="w-full mt-1 p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    required>
+                    <option value="">Select environment</option>
+                    <option value="live">live</option>
+                    <option value="staging">staging</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-gray-700 font-medium">Region</label>
+                <select name="region"
+                    class="w-full mt-1 p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    required>
+                    <option value="">Select region</option>
+                    <option value="us-east-1">us-east-1</option>
+                    <option value="us-west-1">us-west-1</option>
+                    <option value="eu-central-1">eu-central-1</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-gray-700 font-medium">API Key</label>
+                <input type="text" name="api_key"
+                    class="w-full mt-1 p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    required>
+            </div>
+
+            <div>
+                <label class="block text-gray-700 font-medium">Upload Workflow JSON File</label>
+                <input type="file" name="file" accept=".json"
+                    class="w-full mt-1 p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    required>
+            </div>
+
+            <button type="submit"
+                class="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition">
+                Migrate Workflow
+            </button>
+        </form>
+
+        <div id="result" class="mt-6 p-4 bg-gray-50 text-sm text-gray-800 border rounded-md whitespace-pre-wrap"></div>
+    </div>
+
+    <script>
+        document.getElementById('migrationForm').addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            const form = e.target;
+            const formData = new FormData();
+
+            const fileInput = form.querySelector('input[name="file"]');
+            if (fileInput.files.length === 0) {
+                alert('Please select a file.');
+                return;
+            }
+
+            formData.append('file', fileInput.files[0]);
+
+            const data = {
+                workflow_name: form.workflow_name.value,
+                env: form.env.value,
+                region: form.region.value,
+                api_key: form.api_key.value
+            };
+
+            formData.append('data', JSON.stringify(data));
+
+            try {
+                const response = await fetch('/api/migratewf', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+                document.getElementById('result').innerText = JSON.stringify(result, null, 2);
+            } catch (err) {
+                document.getElementById('result').innerText = 'Error: ' + err.message;
+            }
+        });
+    </script>
+</body>
+
+</html>
