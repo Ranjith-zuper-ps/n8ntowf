@@ -3,14 +3,15 @@ const multer = require('multer');
 
 const fs = require('fs');
 const path = require('path');
+const cors = require('cors');
 
 const createNewWorkflow = require('./controllers/createwf.js');
 const convertN8nToZuper = require('./controllers/convertn8ntozwf.js')
 const updateToZuperWorkflow = require('./controllers/updatetozwf.js');
 
 const port = process.env.PORT || 3000;
-
 const app = express();
+app.use(cors());
 
 // Set EJS as templating engine
 app.set('view engine', 'ejs');
