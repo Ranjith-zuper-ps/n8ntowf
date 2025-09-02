@@ -11,7 +11,7 @@ const updateToZuperWorkflow = require('./controllers/updatetozwf.js');
 
 const port = process.env.PORT || 3000;
 const app = express();
-app.use(cors());
+
 
 // Set EJS as templating engine
 app.set('view engine', 'ejs');
@@ -19,7 +19,8 @@ app.set('views', path.join(__dirname, 'views'));
 
 // Optional: serve static files
 app.use(express.static(path.join(__dirname, 'public')));
-
+app.use(cors());
+app.options('*', cors());
 
 // Middleware to parse JSON
 app.use(express.json());
@@ -28,6 +29,11 @@ app.get('/', (req, res) => {
     res.render('index'); // Renders views/index.ejs
 });
 
+// Log incoming requests
+app.use((req, res, next) => {
+    console.log(`Incoming request: ${req.method} ${req.url}`);
+    next();
+});
 
 // Set up multer to handle multipart/form-data
 const storage = multer.memoryStorage(); // or diskStorage for saving to disk
@@ -82,4 +88,6 @@ app.post('/api/migratewf', upload.single('file'), async (req, res) => {
 // Start server
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
+}).on('error', (err) => {
+    console.error(`Error occurred: ${err.message}`);
 });
