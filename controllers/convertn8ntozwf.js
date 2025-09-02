@@ -15,8 +15,95 @@ function hasExpression(str) {
     return /{{[^{}]+}}/.test(str);
 }
 
-function convertParameters(nodeType, parameters, region = "") {
-    // Example: Map parameters based on node type
+function convertJsonObjectAccess(expr) {
+    
+    expr = expr.replace(
+        /\$\(['"]([^'"]+)['"]\)\.all\(\)\[0\]\.json(?!\.)/g,
+        (_, nodeName) => `$.getNodeData('${nodeName}')[0]['data']`
+    );
+    
+    expr = expr.replace(
+        /\$\(['"]([^'"]+)['"]\)\.item\.json(?!\.)/g,
+        (_, nodeName) => `$.getNodeData('${nodeName}')[0]['data']`
+    );
+    return expr;
+}
+
+function convertN8nExpression(expression, nodeMap) {
+    if (!expression || typeof expression !== 'string') return expression;
+
+    expression = convertJsonObjectAccess(expression);
+
+    //{{ $json.field }} case
+    expression = expression.replace(/\{\{\s*\$json\.([a-zA-Z0-9_]+)\s*\}\}/g,
+        (_, field) => `{{$.getNodeData('__CURRENT_NODE__')[0]['data']['${field}']}}`
+    );
+
+    // {{ $('Node Name').all()[0].json.field }} case
+    expression = expression.replace(
+        /\{\{\s*\$\(\s*'([^']+)'\s*\)\.all\(\)\[0\]\.json\.([a-zA-Z0-9_]+)\s*\}\}/g,
+        (_, nodeName, field) => `{{$.getNodeData('${nodeName}')[0]['data']['${field}']}}`
+    );
+
+    // $json.field
+    expression = expression.replace(/\$json\.([a-zA-Z0-9_]+)/g,
+        (_, field) => `$.getNodeData('__CURRENT_NODE__')[0]['data']['${field}']`
+    );
+    // $('Node Name').all()[0].json.field
+    expression = expression.replace(
+        /\$\(['"]([^'"]+)['"]\)\.all\(\)\[0\]\.json\.([a-zA-Z0-9_]+)/g,
+        (_, nodeName, field) => `$.getNodeData('${nodeName}')[0]['data']['${field}']`
+    );
+    // $('Node Name').item.json.field
+    expression = expression.replace(
+        /\$\(['"]([^'"]+)['"]\)\.item\.json\.([a-zA-Z0-9_]+)/g,
+        (_, nodeName, field) => `$.getNodeData('${nodeName}')[0]['data']['${field}']`
+    );
+
+    return expression;
+}
+
+function convertExpressionInObject(obj, nodeMap) {
+    if (typeof obj === 'string') {
+        return convertN8nExpression(obj, nodeMap);
+    }
+    
+    if (Array.isArray(obj)) {
+        return obj.map(item => convertExpressionInObject(item, nodeMap));
+    }
+    
+    if (obj && typeof obj === 'object') {
+        const newObj = {};
+        for (const key in obj) {
+            newObj[key] = convertExpressionInObject(obj[key], nodeMap);
+        }
+        return newObj;
+    }
+    
+    return obj;
+}
+
+function replaceCurrentNodePlaceholder(obj, nodeName) {
+    if (typeof obj === 'string') {
+        return obj.replace(/__CURRENT_NODE__/g, nodeName);
+    }
+    
+    if (Array.isArray(obj)) {
+        return obj.map(item => replaceCurrentNodePlaceholder(item, nodeName));
+    }
+    
+    if (obj && typeof obj === 'object') {
+        const newObj = {};
+        for (const key in obj) {
+            newObj[key] = replaceCurrentNodePlaceholder(obj[key], nodeName);
+        }
+        return newObj;
+    }
+    
+    return obj;
+}
+
+function convertParameters(nodeType, parameters, region = "", workflowUID) {
     switch (nodeType) {
         case 'code':
             return { "code": parameters.jsCode };
@@ -127,58 +214,30 @@ function convertParameters(nodeType, parameters, region = "") {
             };
         case 'external_webhook':
             return {
-                "url": {
-                    "type": "FIXED",
-                    "value": ""
-                },
-                "method": {
-                    "type": "FIXED",
-                    "value": "GET"
-                },
+                "url": { "type": "FIXED", "value": "" },
+                "method": { "type": "FIXED", "value": "GET" },
                 "live_url": {
                     "type": "FIXED",
-                    "value": `https://${region}-workflow.zuperpro.com/api/gatekeeper/workflow/webhook/9d17c7ae-4217-4985-b5bd-28b44c200a46`
+                    "value": `https://${region}-workflow.zuperpro.com/api/gatekeeper/workflow/webhook/${workflowUID}`
                 },
                 "test_url": {
                     "type": "FIXED",
-                    "value": `https://${region}-workflow.zuperpro.com/api/gatekeeper/workflow/webhook-test/9d17c7ae-4217-4985-b5bd-28b44c200a46`
+                    "value": `https://${region}-workflow.zuperpro.com/api/gatekeeper/workflow/webhook-test/${workflowUID}`
                 },
-                "send_headers": {
-                    "type": "FIXED",
-                    "value": false
-                },
-                "respond_after": {
-                    "type": "FIXED",
-                    "value": false
-                },
+                "send_headers": { "type": "FIXED", "value": false },
+                "respond_after": { "type": "FIXED", "value": false },
                 "webhook_method": {
                     "type": "FIXED",
                     "value": parameters?.httpMethod || "POST"
                 },
                 "header_parameters": []
             }
-
         case 'if_else':
             return convertN8nConditionsToZuper(parameters?.conditions);
         default:
-            // Fallback: return parameters as-is
             return parameters;
     }
 }
-
-function findNodeIdByName(nodeType, nodeId) {
-    switch (nodeType) {
-        case 'code': return `${nodeType}_${nodeType}${nodeId}`;
-        case 'http_request_v2':
-            return `${nodeType}_${nodeType}${nodeId}`;
-        case 'external_webhook':
-            return "external_webhook";
-        default:
-            // Fallback: return a generic ID based on node type and ID
-            return `${nodeType}_${nodeType}${nodeId}`;
-    }
-}
-
 
 function convertN8nConditionsToZuper(n8nConditions) {
     const conditions = [];
@@ -208,11 +267,9 @@ function convertN8nConditionsToZuper(n8nConditions) {
             }
         };
 
-        // Handle boolean operator
         if (cond.operator && cond.operator.type === "boolean") {
             zuperCondition.operation.value = cond.operator.operation === "true" ? "NOT_EMPTY" : "EMPTY";
         } else {
-            // If operator is not boolean, attempt to extract rightValue
             zuperCondition.value2.value = cond.rightValue || "";
         }
 
@@ -223,17 +280,27 @@ function convertN8nConditionsToZuper(n8nConditions) {
 }
 
 module.exports = function (wfData, n8nJson) {
-    // Convert n8n workflow to Zuper workflow
     const nodeMap = {};
-    console.log('n8nJson', n8nJson);
-    const nodes = n8nJson?.nodes?.map((node, index) => {
+    const nodes = n8nJson?.nodes?.map((node) => {
         let nodeType = NODE_TYPE_MAP[node?.type] || node.type.replace("n8n-nodes-base.", "");
-        if (nodeType === "n8n-nodes-base.noOp") {
-            nodeType = "noOp";
-        }
-        nodeMap[node.name] = findNodeIdByName(nodeType, node?.id);
+        if (nodeType === "n8n-nodes-base.noOp") nodeType = "noOp";
+        
+        // Use original node name as ID
+        const zuperNodeId = node.name;
+        nodeMap[node.name] = zuperNodeId;
+        
+        let formFields = convertParameters(
+            nodeType, 
+            node.parameters || {}, 
+            wfData?.region, 
+            wfData?.workflow_uid
+        );
+        
+        // Convert n8n expressions to Zuper format
+        formFields = convertExpressionInObject(formFields, nodeMap);
+        
         let zwfData = {
-            id: findNodeIdByName(nodeType, node?.id),
+            id: zuperNodeId,
             node_uid: node.id,
             node_name: NODE_NAME_MAP[node?.type],
             node_display_name: nodeType,
@@ -252,10 +319,16 @@ module.exports = function (wfData, n8nJson) {
                 x: node.position[0],
                 y: node.position[1]
             },
-            form_fields: convertParameters(nodeType, node.parameters || {}, wfData?.region),
+            form_fields: formFields,
             node_category: NODE_CATEGORY_MAP[node.type] || "FLOW",
             master_node_uid: NODE_ID_MAP[wfData?.env][node.type],
         };
+        
+        // Replace __CURRENT_NODE__ placeholder with actual node name
+        zwfData.form_fields = replaceCurrentNodePlaceholder(
+            zwfData.form_fields, 
+            node.name
+        );
 
         if (NODE_COLOR_MAP[node?.type]) {
             zwfData['color'] = NODE_COLOR_MAP[node?.type];
@@ -267,13 +340,32 @@ module.exports = function (wfData, n8nJson) {
     const connections = [];
     const n8nConnections = n8nJson.connections || {};
 
-    // Map n8n connections to Zuper connections
     Object.entries(n8nConnections).forEach(([sourceNodeName, outputs]) => {
         outputs.main.forEach((targets, i) => {
             targets.forEach((conn) => {
                 const sourceId = nodeMap[sourceNodeName];
                 const targetId = nodeMap[conn.node];
-                let sourceHandle = findSourceHandle(sourceId.split("_")[0], i)
+                
+                if (!sourceId || !targetId) return;
+                
+                // Get source node type for handle determination
+                const sourceNode = n8nJson.nodes.find(n => n.name === sourceNodeName);
+                const sourceNodeType = sourceNode ? 
+                    NODE_TYPE_MAP[sourceNode?.type] || sourceNode.type.replace("n8n-nodes-base.", "") : 
+                    "";
+                
+                let sourceHandle = "one-a";
+                switch (sourceNodeType) {
+                    case "external": 
+                        sourceHandle = "trigger-a";
+                        break;
+                    case "http_request_v2":
+                    case "if_else":
+                        if (i === 0) sourceHandle = "two-a";
+                        else if (i === 1) sourceHandle = "two-b";
+                        break;
+                }
+                
                 connections.push({
                     id: `reactflow__edge-${sourceId}-${sourceHandle}-${targetId}-a`,
                     type: "buttonEdge",
@@ -286,26 +378,6 @@ module.exports = function (wfData, n8nJson) {
             });
         });
     });
-
-    function findSourceHandle(sourceNodeName, index) {
-        switch (sourceNodeName) {
-            case "external":
-                return "trigger-a";
-            case "http":
-            case "if":
-                {
-                    if (index === 0) {
-                        return "two-a";
-                    } else if (index === 1) {
-                        return "two-b";
-                    }
-                    return "one-a";
-                }
-            default:
-                return "one-a";
-        }
-    }
-
 
     return {
         workflow_uid: wfData?.workflow_uid,
