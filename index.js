@@ -41,7 +41,7 @@ const upload = multer({ storage });
 
 // Route to handle file and JSON
 // For example, file field is 'file', JSON field is 'data'
-app.post('/api/migratewf', upload.single('file'), async (req, res) => {
+app.post('/migratewf', upload.single('file'), async (req, res) => {
 
     const file = req.file; // file data
     if (!file) {
